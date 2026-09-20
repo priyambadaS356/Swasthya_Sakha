@@ -1,8 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
-  Flame, Wind, Activity, HeartPulse, AlertTriangle, ShieldCheck, RotateCcw 
+  Flame, Wind, Activity, HeartPulse, AlertTriangle, ShieldCheck, RotateCcw, Send, CheckCircle2 
 } from 'lucide-react';
 import Badge from './Badge';
+import { saveOfflineRecord } from '../utils/indexedDB';
+import api from '../api';
 
 export const QUICK_SYMPTOMS = [
   { id: 'fever', label: 'Fever', mr: 'ताप', score: 1, icon: Flame, color: 'hover:border-amber-400 hover:bg-amber-50 text-amber-600' },
@@ -58,7 +60,9 @@ export function SymptomSelector({ selectedSymptoms, toggleSymptom, resetSymptoms
   );
 }
 
-export function TriageCard({ totalScore }) {
+export function TriageCard({ totalScore, selectedSymptoms = [] }) {
+  const [submitting, setSubmitting] = useState(false);
+
   let triageConfig = {
     badge: 'STANDARD CARE ROUTE',
     title: 'STABLE / NORMAL TRIAGE',
@@ -93,6 +97,49 @@ export function TriageCard({ totalScore }) {
 
   const TriageIcon = triageConfig.icon;
 
+  // Offline-First Submit Logic
+  const handleTriageSubmit = async () => {
+    setSubmitting(true);
+    const endpoint = '/triage';
+    const payload = {
+      selectedSymptoms,
+      totalScore,
+      triageLevel: triageConfig.title,
+      submittedAt: new Date().toISOString()
+    };
+
+    // Case 1: Browser is Offline
+    if (!navigator.onLine) {
+      try {
+        await saveOfflineRecord(endpoint, payload);
+        alert('⚠️ Device offline hai. Triage assessment IndexedDB mein save ho gaya hai aur internet aate hi server par sync ho jayega!');
+      } catch (err) {
+        console.error('Offline Save Error:', err);
+        alert('Failed to save offline record.');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // Case 2: Browser is Online
+    try {
+      await api.post(endpoint, payload);
+      alert('✅ Triage assessment successfully server par submit ho gaya!');
+    } catch (error) {
+      console.error('Triage Submit Error:', error);
+      // Case 3: Network lost during request
+      if (!error.response) {
+        await saveOfflineRecord(endpoint, payload);
+        alert('⚠️ Network loss detected. Triage record offline queue mein save kar diya gaya!');
+      } else {
+        alert('Server Error: ' + (error.response?.data?.message || 'Submission failed'));
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className={`card p-6 border-2 rounded-2xl flex flex-col justify-between ${triageConfig.containerStyle}`}>
       <div>
@@ -116,7 +163,24 @@ export function TriageCard({ totalScore }) {
         </div>
       </div>
 
-      <div className="mt-6 pt-4 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500">
+      {/* Submit Triage Assessment Button */}
+      <div className="mt-5">
+        <button
+          onClick={handleTriageSubmit}
+          disabled={submitting}
+          className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold text-xs transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+        >
+          {submitting ? (
+            'Saving Assessment...'
+          ) : (
+            <>
+              <Send size={14} /> Submit Triage Assessment
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500">
         <span className="flex items-center gap-1 font-semibold">
           <ShieldCheck size={14} className="text-teal-700" /> Auto-Triage Rule Engine
         </span>

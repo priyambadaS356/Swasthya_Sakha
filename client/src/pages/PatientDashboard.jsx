@@ -5,6 +5,8 @@ import SectionHeader from '../components/SectionHeader';
 import Badge from '../components/Badge';
 import { appointments } from '../data';
 import { SymptomSelector, TriageCard, QUICK_SYMPTOMS } from '../components/EmergencyTriage';
+import { saveOfflineRecord } from '../utils/indexedDB';
+import api from '../api';
 
 export default function PatientDashboard({ subpage }) {
   const [lang, setLang] = useState('en-IN');
@@ -75,6 +77,7 @@ export default function PatientDashboard({ subpage }) {
     return sum + (item ? item.score : 0);
   }, 0);
 
+  // Offline-ready Triage Submit Handler
   const handleSubmitTriage = async () => {
     if (!text.trim() && selectedSymptoms.length === 0) {
       setStatusMsg('Please select symptoms or speak/type before submitting.');
@@ -84,27 +87,48 @@ export default function PatientDashboard({ subpage }) {
     setSubmitting(true);
     setStatusMsg('');
 
-    try {
-      const response = await fetch('http://localhost:5000/api/triage/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          symptomsText: text,
-          selectedSymptoms,
-          totalScore,
-          language: lang
-        })
-      });
+    const endpoint = '/triage/submit';
+    const payload = {
+      symptomsText: text,
+      selectedSymptoms,
+      totalScore,
+      language: lang,
+      submittedAt: new Date().toISOString()
+    };
 
-      const data = await response.json();
-      if (data.success) {
-        setStatusMsg('Triage recorded successfully!');
+    // Case 1: Browser Offline Hai
+    if (!navigator.onLine) {
+      try {
+        await saveOfflineRecord(endpoint, payload);
+        setStatusMsg('⚠️ Device offline hai. Data locally IndexedDB mein save ho gaya hai, network aate hi sync ho jayega!');
         setText('');
-      } else {
-        setStatusMsg('Failed to record triage.');
+        setSelectedSymptoms([]);
+      } catch (err) {
+        console.error('Offline save error:', err);
+        setStatusMsg('❌ Failed to save offline record.');
+      } finally {
+        setSubmitting(false);
       }
+      return;
+    }
+
+    // Case 2: Browser Online Hai
+    try {
+      await api.post(endpoint, payload);
+      setStatusMsg('✅ Triage recorded successfully on server!');
+      setText('');
+      setSelectedSymptoms([]);
     } catch (err) {
-      setStatusMsg('Server error. Unable to reach backend.');
+      console.error('Submission error:', err);
+      // Case 3: Request ke waqt connection disconnect ho gaya
+      if (!err.response) {
+        await saveOfflineRecord(endpoint, payload);
+        setStatusMsg('⚠️ Network disconnect ho gaya. Data offline queue mein store kar diya gaya!');
+        setText('');
+        setSelectedSymptoms([]);
+      } else {
+        setStatusMsg('❌ Server error. Unable to reach backend.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -119,13 +143,12 @@ export default function PatientDashboard({ subpage }) {
       return;
     }
 
-    // Stop active instance if running
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch (e) {}
     }
 
     const recognition = new SpeechRecognition();
-    recognition.lang = lang; // 'en-IN', 'hi-IN', or 'mr-IN'
+    recognition.lang = lang;
     recognition.continuous = true;
     recognition.interimResults = true;
 
@@ -311,7 +334,7 @@ export default function PatientDashboard({ subpage }) {
           </div>
         </div>
 
-        <TriageCard totalScore={totalScore} />
+        <TriageCard totalScore={totalScore} selectedSymptoms={selectedSymptoms} />
       </div>
     </Page>
   );
