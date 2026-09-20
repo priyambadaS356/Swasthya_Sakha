@@ -1,60 +1,47 @@
-import React, { useState, useEffect } from 'react';
-import { syncOfflineData } from './utils/syncManager';
+// client/src/utils/syncManager.js
+import { getOfflineRecords, deleteOfflineRecord } from './indexedDB';
+import { api } from '../api';
 
-// Apne existing components ya routes yahan import rakhein
-// import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+let isSyncing = false;
 
-function App() {
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
+export const syncOfflineData = async () => {
+  if (isSyncing || !navigator.onLine) return;
 
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      // Internet wapas aate hi IndexedDB ka unsynced data auto-send hoga
-      syncOfflineData();
-    };
+  try {
+    isSyncing = true;
+    const records = await getOfflineRecords();
 
-    const handleOffline = () => {
-      setIsOnline(false);
-    };
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    // Initial load par check aur sync
-    if (navigator.onLine) {
-      syncOfflineData();
+    if (!records || records.length === 0) {
+      isSyncing = false;
+      return;
     }
 
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
+    console.log(`[SyncManager] ${records.length} pending offline records sync ho rahe hain...`);
 
-  return (
-    <div className="app-container">
-      {/* Offline Status Banner */}
-      {!isOnline && (
-        <div style={{
-          backgroundColor: '#d97706',
-          color: '#ffffff',
-          textAlign: 'center',
-          padding: '10px 16px',
-          fontWeight: '500',
-          fontSize: '14px',
-          position: 'sticky',
-          top: 0,
-          zIndex: 9999,
-          boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-        }}>
-          ⚠️ Aap Offline hain. Naye entries local storage mein save honge aur network aate hi server par sync ho jayenge.
-        </div>
-      )}
+    for (const record of records) {
+      try {
+        if (typeof api === 'function') {
+          await api(record.endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(record.payload),
+          });
+        } else if (api && typeof api.post === 'function') {
+          await api.post(record.endpoint, record.payload);
+        }
 
-      {/* Aapke existing routes, dashboard, aur navigation yahan continue honge */}
-    </div>
-  );
-}
-
-export default App;
+        // Successfully sent, remove from IndexedDB
+        await deleteOfflineRecord(record.id);
+        console.log(`[SyncManager] Record #${record.id} successfully synced.`);
+      } catch (err) {
+        console.error(`[SyncManager] Failed to sync record #${record.id}:`, err);
+        // Agar backend error de, toh loop ruk jayega aur agli bar network aane par retry hoga
+        break;
+      }
+    }
+  } catch (error) {
+    console.error('[SyncManager] Error reading offline records:', error);
+  } finally {
+    isSyncing = false;
+  }
+};

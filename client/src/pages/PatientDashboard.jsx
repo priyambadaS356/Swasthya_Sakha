@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Mic, Square, FileText, CalendarDays, Languages, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 import StatCard from '../components/StatCard';
 import SectionHeader from '../components/SectionHeader';
@@ -6,15 +6,14 @@ import Badge from '../components/Badge';
 import { appointments } from '../data';
 import { SymptomSelector, TriageCard, QUICK_SYMPTOMS } from '../components/EmergencyTriage';
 import { saveOfflineRecord } from '../utils/indexedDB';
-import api from '../api';
+import { api } from '../api';
 
 export default function PatientDashboard({ subpage }) {
   const [lang, setLang] = useState('en-IN');
   const [listening, setListening] = useState(false);
   const [text, setText] = useState('');
   const [tab, setTab] = useState(subpage || 'overview');
-  
-  // Ref for recognition to prevent stale closure issues
+
   const recognitionRef = useRef(null);
 
   // Triage & Translation state
@@ -23,18 +22,32 @@ export default function PatientDashboard({ subpage }) {
   const [isTranslating, setIsTranslating] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
 
-  useEffect(() => { setTab(subpage || 'overview'); }, [subpage]);
+  useEffect(() => { 
+    setTab(subpage || 'overview'); 
+  }, [subpage]);
 
-  // Clean up recognition instance on unmount
+  const stopSpeech = useCallback(() => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (err) {
+        console.warn('Speech stop warning:', err);
+      }
+      recognitionRef.current = null;
+    }
+    setListening(false);
+  }, []);
+
   useEffect(() => {
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {}
       }
     };
   }, []);
 
-  // Handle language change + translation
   const handleLanguageChange = async (targetLang) => {
     if (listening) stopSpeech();
 
@@ -57,7 +70,7 @@ export default function PatientDashboard({ subpage }) {
         }
       } catch (err) {
         console.error('Translation error:', err);
-        setStatusMsg('Translation failed. You can type directly.');
+        setStatusMsg('Translation server unavailable. You can edit text directly.');
       } finally {
         setIsTranslating(false);
       }
@@ -73,11 +86,24 @@ export default function PatientDashboard({ subpage }) {
   const resetSymptoms = () => setSelectedSymptoms([]);
 
   const totalScore = selectedSymptoms.reduce((sum, id) => {
-    const item = QUICK_SYMPTOMS.find((s) => s.id === id);
+    const item = (QUICK_SYMPTOMS || []).find((s) => s.id === id);
     return sum + (item ? item.score : 0);
   }, 0);
 
-  // Offline-ready Triage Submit Handler
+  // Universal Safe API Execution
+  const executeApiPost = async (endpoint, payload) => {
+    if (typeof api === 'function') {
+      return await api(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } else if (api && typeof api.post === 'function') {
+      return await api.post(endpoint, payload);
+    }
+    throw new Error('API client method not initialized.');
+  };
+
   const handleSubmitTriage = async () => {
     if (!text.trim() && selectedSymptoms.length === 0) {
       setStatusMsg('Please select symptoms or speak/type before submitting.');
@@ -96,11 +122,11 @@ export default function PatientDashboard({ subpage }) {
       submittedAt: new Date().toISOString()
     };
 
-    // Case 1: Browser Offline Hai
+    // Case 1: Browser Offline
     if (!navigator.onLine) {
       try {
         await saveOfflineRecord(endpoint, payload);
-        setStatusMsg('⚠️ Device offline hai. Data locally IndexedDB mein save ho gaya hai, network aate hi sync ho jayega!');
+        setStatusMsg('⚠️ Device offline hai. Data IndexedDB mein save ho gaya hai, network aate hi sync ho jayega!');
         setText('');
         setSelectedSymptoms([]);
       } catch (err) {
@@ -112,34 +138,34 @@ export default function PatientDashboard({ subpage }) {
       return;
     }
 
-    // Case 2: Browser Online Hai
+    // Case 2: Browser Online
     try {
-      await api.post(endpoint, payload);
+      await executeApiPost(endpoint, payload);
       setStatusMsg('✅ Triage recorded successfully on server!');
       setText('');
       setSelectedSymptoms([]);
     } catch (err) {
       console.error('Submission error:', err);
-      // Case 3: Request ke waqt connection disconnect ho gaya
-      if (!err.response) {
+      const isNetworkIssue = !navigator.onLine || err?.message?.includes('Failed to fetch');
+
+      if (isNetworkIssue) {
         await saveOfflineRecord(endpoint, payload);
-        setStatusMsg('⚠️ Network disconnect ho gaya. Data offline queue mein store kar diya gaya!');
+        setStatusMsg('⚠️ Connection lost. Data offline queue mein save kar diya gaya!');
         setText('');
         setSelectedSymptoms([]);
       } else {
-        setStatusMsg('❌ Server error. Unable to reach backend.');
+        setStatusMsg(`❌ Server Error: ${err?.message || '500 Internal Server Error'}`);
       }
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Robust Multilingual Web Speech Handler
   const startSpeech = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      setStatusMsg('Speech recognition requires Google Chrome, Microsoft Edge, or Safari.');
+      setStatusMsg('Speech recognition requires Chrome, Edge, or Safari.');
       return;
     }
 
@@ -154,7 +180,8 @@ export default function PatientDashboard({ subpage }) {
 
     recognition.onstart = () => {
       setListening(true);
-      setStatusMsg(`🎙️ Listening in ${lang === 'hi-IN' ? 'Hindi' : lang === 'mr-IN' ? 'Marathi' : 'English'}... Speak now.`);
+      const langLabel = lang === 'hi-IN' ? 'Hindi' : lang === 'mr-IN' ? 'Marathi' : 'English';
+      setStatusMsg(`🎙️ Listening in ${langLabel}... Speak now.`);
     };
 
     recognition.onresult = (event) => {
@@ -169,11 +196,9 @@ export default function PatientDashboard({ subpage }) {
       console.error('Speech error:', event.error);
       setListening(false);
       if (event.error === 'not-allowed') {
-        setStatusMsg('❌ Microphone blocked. Click the lock/cam icon in the browser address bar to allow mic access.');
+        setStatusMsg('❌ Microphone access denied. Please allow microphone in browser settings.');
       } else if (event.error === 'no-speech') {
-        setStatusMsg('⚠️ No speech detected. Please speak closer to the mic.');
-      } else if (event.error === 'network') {
-        setStatusMsg('⚠️ Network error connecting to speech engine.');
+        setStatusMsg('⚠️ No speech detected. Try speaking closer to mic.');
       } else {
         setStatusMsg(`Speech error: ${event.error}`);
       }
@@ -192,26 +217,25 @@ export default function PatientDashboard({ subpage }) {
     }
   };
 
-  const stopSpeech = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-    }
-    setListening(false);
-  };
-
-  if (tab === 'history')
+  if (tab === 'history') {
     return (
-      <Page title="Medical History">
+      <div className="space-y-5">
         <div className="grid lg:grid-cols-3 gap-5">
           <div className="lg:col-span-2 card p-5">
-            <SectionHeader title="Medical timeline" sub="Recent encounters and prescriptions" />
+            <SectionHeader title="Medical Timeline" sub="Recent encounters and prescriptions" />
             <div className="space-y-4">
-              {['12 Aug 2026 — District Hospital · Follow-up', '28 Jul 2026 — PHC Andheri · Consultation', '11 Jun 2026 — Diagnostics · CBC + Hb'].map((x) => (
-                <div key={x} className="flex gap-4 p-4 bg-slate-50 rounded-xl">
-                  <div className="w-2 h-2 rounded-full bg-teal-600 mt-2" />
+              {[
+                '12 Aug 2026 — District Hospital · Follow-up',
+                '28 Jul 2026 — PHC Andheri · Consultation',
+                '11 Jun 2026 — Diagnostics · CBC + Hb'
+              ].map((entry) => (
+                <div key={entry} className="flex gap-4 p-4 bg-slate-50 rounded-xl">
+                  <div className="w-2 h-2 rounded-full bg-teal-600 mt-2 shrink-0" />
                   <div>
-                    <b className="text-sm">{x}</b>
-                    <p className="text-xs text-muted mt-1">Clinical notes, reports and e-prescription available to authorized care team.</p>
+                    <b className="text-sm">{entry}</b>
+                    <p className="text-xs text-muted mt-1">
+                      Clinical notes, reports, and e-prescriptions accessible to authorized care team.
+                    </p>
                   </div>
                 </div>
               ))}
@@ -220,40 +244,40 @@ export default function PatientDashboard({ subpage }) {
           <div className="card p-5">
             <SectionHeader title="Documents" />
             <div className="space-y-2">
-              {['Lab report · CBC', 'Prescription · 12 Aug', 'Referral · Cardiology'].map((x) => (
-                <div key={x} className="border rounded-xl p-3 flex items-center gap-3">
+              {['Lab report · CBC', 'Prescription · 12 Aug', 'Referral · Cardiology'].map((doc) => (
+                <div key={doc} className="border rounded-xl p-3 flex items-center gap-3">
                   <FileText size={17} className="text-teal-700" />
-                  <span className="text-sm">{x}</span>
+                  <span className="text-sm">{doc}</span>
                 </div>
               ))}
             </div>
           </div>
         </div>
-      </Page>
+      </div>
     );
+  }
 
-  if (tab === 'appointments')
+  if (tab === 'appointments') {
     return (
-      <Page title="Appointments & Follow-up">
-        <div className="card p-5">
-          <SectionHeader title="Your care schedule" sub="Appointments, referrals and follow-up actions" />
-          <div className="space-y-3">
-            {appointments.slice(0, 3).map((a) => (
-              <div key={a.id || a.time} className="border rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <b>{a.time} · {a.doctor}</b>
-                  <p className="text-xs text-muted mt-1">{a.reason}</p>
-                </div>
-                <Badge tone={a.status === 'Waiting' ? 'amber' : 'green'}>{a.status}</Badge>
+      <div className="card p-5">
+        <SectionHeader title="Your Care Schedule" sub="Appointments, referrals, and follow-up actions" />
+        <div className="space-y-3">
+          {(appointments || []).slice(0, 3).map((a) => (
+            <div key={a.id || a.time} className="border rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <b>{a.time} · {a.doctor}</b>
+                <p className="text-xs text-muted mt-1">{a.reason}</p>
               </div>
-            ))}
-          </div>
+              <Badge tone={a.status === 'Waiting' ? 'amber' : 'green'}>{a.status}</Badge>
+            </div>
+          ))}
         </div>
-      </Page>
+      </div>
     );
+  }
 
   return (
-    <Page title="Patient Dashboard">
+    <div className="space-y-5">
       <div className="grid md:grid-cols-3 gap-4">
         <StatCard label="Next appointment" value="10:30 AM" sub="Dr. Meera Shah · 12 Sep" icon={CalendarDays} />
         <StatCard label="Medical records" value="12" sub="Last updated 12 Aug" icon={FileText} tone="blue" />
@@ -266,24 +290,26 @@ export default function PatientDashboard({ subpage }) {
         resetSymptoms={resetSymptoms} 
       />
 
-      <div className="grid lg:grid-cols-[1.35fr_.65fr] gap-5 mt-5">
+      <div className="grid lg:grid-cols-[1.35fr_.65fr] gap-5">
         <div className="card p-5">
-          <SectionHeader title="Multilingual symptom intake" sub="Speak or type in Marathi, Hindi or English. Speech is converted to text live." />
-          
-          <div className="flex gap-2 mb-4 items-center">
+          <SectionHeader title="Multilingual symptom intake" sub="Speak or type in Marathi, Hindi, or English. Live speech-to-text supported." />
+
+          <div className="flex gap-2 mb-4 items-center flex-wrap">
             {[
               ['en-IN', 'English'],
               ['hi-IN', 'हिन्दी'],
               ['mr-IN', 'मराठी']
-            ].map(([v, l]) => (
+            ].map(([val, label]) => (
               <button 
-                key={v} 
-                onClick={() => handleLanguageChange(v)} 
+                key={val} 
+                onClick={() => handleLanguageChange(val)} 
                 disabled={isTranslating}
-                className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all ${lang === v ? 'bg-teal-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                className={`px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  lang === val ? 'bg-teal-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
               >
                 <Languages size={14} className="inline mr-1" />
-                {l}
+                {label}
               </button>
             ))}
             {isTranslating && (
@@ -297,23 +323,31 @@ export default function PatientDashboard({ subpage }) {
             value={text}
             onChange={(e) => setText(e.target.value)}
             disabled={isTranslating}
-            placeholder="Type your symptoms here or click the mic button below to speak..."
+            placeholder="Type your symptoms here or tap the microphone below to speak..."
             className="w-full min-h-40 bg-slate-50 border rounded-2xl p-4 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-600 resize-y disabled:opacity-60"
           />
 
           <div className="flex flex-col items-center gap-3 mt-4">
             <div className="flex justify-center">
               {listening ? (
-                <button onClick={stopSpeech} className="w-14 h-14 rounded-full bg-rose-500 text-white grid place-items-center shadow-lg animate-pulse">
+                <button 
+                  onClick={stopSpeech} 
+                  className="w-14 h-14 rounded-full bg-rose-500 text-white grid place-items-center shadow-lg animate-pulse"
+                  aria-label="Stop recording"
+                >
                   <Square size={19} />
                 </button>
               ) : (
-                <button onClick={startSpeech} className="w-14 h-14 rounded-full bg-teal-700 hover:bg-teal-800 text-white grid place-items-center shadow-lg transition-all">
+                <button 
+                  onClick={startSpeech} 
+                  className="w-14 h-14 rounded-full bg-teal-700 hover:bg-teal-800 text-white grid place-items-center shadow-lg transition-all"
+                  aria-label="Start voice input"
+                >
                   <Mic size={23} />
                 </button>
               )}
             </div>
-            
+
             <p className="text-center text-[11px] font-medium text-slate-600">
               {listening ? 'Listening... Speak now' : 'Tap the microphone to speak'}
             </p>
@@ -336,10 +370,6 @@ export default function PatientDashboard({ subpage }) {
 
         <TriageCard totalScore={totalScore} selectedSymptoms={selectedSymptoms} />
       </div>
-    </Page>
+    </div>
   );
-}
-
-function Page({ title, children }) {
-  return <div>{children}</div>;
 }

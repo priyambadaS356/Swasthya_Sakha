@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Routes,
   Route,
@@ -10,6 +10,7 @@ import { useDispatch, useSelector } from "react-redux";
 
 import { setHealthData } from "./store/healthSlice";
 import { facilities, medicines, diagnostics, appointments } from "./data";
+import { syncOfflineData } from "./utils/syncManager";
 
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
@@ -88,7 +89,7 @@ function Shell() {
       <main className="min-w-0 flex-1">
         <Topbar
           title={
-            titles[subpage]?.[user.role] ||
+            titles[subpage]?.[user?.role] ||
             titles[subpage] ||
             "Dashboard"
           }
@@ -101,13 +102,13 @@ function Shell() {
             <Route
               path="/dashboard"
               element={
-                user.role === "patient" ? (
+                user?.role === "patient" ? (
                   <PatientDashboard />
-                ) : user.role === "healthWorker" ? (
+                ) : user?.role === "healthWorker" ? (
                   <HealthWorkerDashboard />
-                ) : user.role === "doctor" ? (
+                ) : user?.role === "doctor" ? (
                   <DoctorDashboard />
-                ) : user.role === "facilityAdmin" ? (
+                ) : user?.role === "facilityAdmin" ? (
                   <FacilityAdminDashboard />
                 ) : (
                   <DistrictAdminDashboard />
@@ -134,7 +135,7 @@ function Shell() {
             <Route
               path="/dashboard/facilities"
               element={
-                user.role === "doctor" ? (
+                user?.role === "doctor" ? (
                   <DoctorDashboard subpage="facilities" />
                 ) : (
                   <HealthWorkerDashboard subpage="facilities" />
@@ -154,7 +155,7 @@ function Shell() {
             <Route
               path="/dashboard/teleconsult"
               element={
-                user.role === "doctor" ? (
+                user?.role === "doctor" ? (
                   <DoctorDashboard subpage="teleconsult" />
                 ) : (
                   <HealthWorkerDashboard subpage="teleconsult" />
@@ -166,7 +167,7 @@ function Shell() {
             <Route
               path="/dashboard/network"
               element={
-                user.role === "districtAdmin" ? (
+                user?.role === "districtAdmin" ? (
                   <DistrictAdminDashboard subpage="network" />
                 ) : (
                   <FacilityAdminDashboard subpage="network" />
@@ -208,55 +209,101 @@ function Shell() {
 
 export default function App() {
   const navigate = useNavigate();
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      // Internet wapas aate hi IndexedDB ka unsynced data auto-send hoga
+      syncOfflineData();
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    // App mount hone par initial background sync attempt
+    if (navigator.onLine) {
+      syncOfflineData();
+    }
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   return (
-    <Routes>
+    <>
+      {/* OFFLINE WARNING BANNER */}
+      {!isOnline && (
+        <div style={{
+          backgroundColor: '#d97706',
+          color: '#ffffff',
+          textAlign: 'center',
+          padding: '10px 16px',
+          fontWeight: '500',
+          fontSize: '14px',
+          position: 'sticky',
+          top: 0,
+          zIndex: 9999,
+          boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+        }}>
+          ⚠️ Aap Offline hain. Naye entries local storage mein save honge aur network aate hi server par sync ho jayenge.
+        </div>
+      )}
 
-      {/* =========================================
-          LANDING PAGE
-          ========================================= */}
+      <Routes>
 
-      <Route
-        path="/"
-        element={
-          <SwasthyaSakhaLanding
-            onCreateAccount={() => navigate("/login")}
-            onSignIn={() => navigate("/login")}
-            onExplore={() => {
-              document
-                .getElementById("features")
-                ?.scrollIntoView({
-                  behavior: "smooth",
-                });
-            }}
-          />
-        }
-      />
+        {/* =========================================
+            LANDING PAGE
+            ========================================= */}
 
-
-      {/* =========================================
-          LOGIN
-          ========================================= */}
-
-      <Route
-        path="/login"
-        element={<Login />}
-      />
+        <Route
+          path="/"
+          element={
+            <SwasthyaSakhaLanding
+              onCreateAccount={() => navigate("/login")}
+              onSignIn={() => navigate("/login")}
+              onExplore={() => {
+                document
+                  .getElementById("features")
+                  ?.scrollIntoView({
+                    behavior: "smooth",
+                  });
+              }}
+            />
+          }
+        />
 
 
-      {/* =========================================
-          PROTECTED DASHBOARD
-          ========================================= */}
+        {/* =========================================
+            LOGIN
+            ========================================= */}
 
-      <Route
-        path="/*"
-        element={
-          <Guard>
-            <Shell />
-          </Guard>
-        }
-      />
+        <Route
+          path="/login"
+          element={<Login />}
+        />
 
-    </Routes>
+
+        {/* =========================================
+            PROTECTED DASHBOARD
+            ========================================= */}
+
+        <Route
+          path="/*"
+          element={
+            <Guard>
+              <Shell />
+            </Guard>
+          }
+        />
+
+      </Routes>
+    </>
   );
 }

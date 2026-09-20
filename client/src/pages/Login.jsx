@@ -1,41 +1,46 @@
 import React, { useState } from "react";
 import { useDispatch } from "react-redux";
 import { useNavigate } from "react-router-dom";
-import { ShieldCheck, QrCode, ArrowRight, CheckCircle2 } from "lucide-react";
+import { ShieldCheck, QrCode, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { roles } from "../data";
 import { loginSuccess } from "../store/authSlice";
 import { api } from "../api";
 import Modal from "../components/Modal";
 
+const DEMO_USERNAMES = {
+  patient: "patient",
+  healthWorker: "worker",
+  doctor: "doctor",
+  facilityAdmin: "facility",
+  districtAdmin: "district",
+};
+
 export default function Login() {
   const [role, setRole] = useState("patient");
   const [qr, setQr] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
   const dispatch = useDispatch();
   const nav = useNavigate();
 
   const submit = async (e) => {
     e.preventDefault();
     setError("");
+    setLoading(true);
+
+    const form = e.currentTarget;
+    const enteredUsername = form.username?.value?.trim();
+    const username = enteredUsername || DEMO_USERNAMES[role];
+    const password = form.password?.value;
+
     try {
-      // Default demo username fallback based on role
-      const defaultUsername = {
-        patient: "patient",
-        healthWorker: "worker",
-        doctor: "doctor",
-        facilityAdmin: "facility",
-        districtAdmin: "district",
-      }[role];
-
-      // Use entered username/mobile if provided, otherwise fallback to demo user
-      const enteredUsername = e.currentTarget.username?.value;
-      const username = enteredUsername || defaultUsername;
-
       const data = await api("/auth/login", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           username,
-          password: e.currentTarget.password.value,
+          password,
           role,
         }),
       });
@@ -43,9 +48,15 @@ export default function Login() {
       dispatch(loginSuccess(data));
       nav("/dashboard");
     } catch (err) {
-      setError(err.message || "Login failed. Please try again.");
+      console.error("Login Error:", err);
+      const msg = typeof err === "string" ? err : err?.message || "Server error. Please verify backend service.";
+      setError(msg);
+    } finally {
+      setLoading(false);
     }
   };
+
+  const currentRoleObj = roles?.find((r) => r.id === role) || roles[0];
 
   return (
     <div className="min-h-screen grid lg:grid-cols-[1.1fr_.9fr] bg-[#f6f9fc]">
@@ -80,7 +91,7 @@ export default function Login() {
             ].map((x) => (
               <div
                 key={x}
-                className="bg-white/6 border border-white/10 rounded-xl p-3 text-sm flex gap-2"
+                className="bg-white/5 border border-white/10 rounded-xl p-3 text-sm flex gap-2"
               >
                 <CheckCircle2 size={17} className="text-teal-300 shrink-0" />
                 {x}
@@ -113,14 +124,14 @@ export default function Login() {
 
             {/* Role Selectors */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-6">
-              {roles.map((r) => (
+              {(roles || []).map((r) => (
                 <button
                   key={r.id}
                   type="button"
                   onClick={() => setRole(r.id)}
-                  className={`text-left p-3 rounded-xl border ${
+                  className={`text-left p-3 rounded-xl border transition-all ${
                     role === r.id
-                      ? "border-teal-500 bg-teal-50"
+                      ? "border-teal-500 bg-teal-50 ring-2 ring-teal-500/20"
                       : "border-slate-200 hover:bg-slate-50"
                   }`}
                 >
@@ -137,7 +148,7 @@ export default function Login() {
                 <input
                   name="username"
                   required
-                  className="mt-1.5 w-full border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-teal-500"
+                  className="mt-1.5 w-full border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-teal-500 transition-colors"
                   placeholder={
                     role === "patient" ? "10-digit mobile" : "Enter user ID"
                   }
@@ -149,19 +160,32 @@ export default function Login() {
                   name="password"
                   required
                   type="password"
-                  className="mt-1.5 w-full border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-teal-500"
+                  className="mt-1.5 w-full border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-teal-500 transition-colors"
                   placeholder="••••••••"
                 />
               </label>
 
-              {error && <p className="text-sm text-rose-600">{error}</p>}
+              {error && (
+                <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 p-3 rounded-xl">
+                  {error}
+                </p>
+              )}
 
               <button
                 type="submit"
-                className="w-full bg-[#0b2239] text-white rounded-xl py-3.5 font-semibold flex items-center justify-center gap-2 hover:bg-[#12355b]"
+                disabled={loading}
+                className="w-full bg-[#0b2239] text-white rounded-xl py-3.5 font-semibold flex items-center justify-center gap-2 hover:bg-[#12355b] disabled:opacity-60 transition-all"
               >
-                Sign in as {roles.find((r) => r.id === role)?.label}
-                <ArrowRight size={18} />
+                {loading ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" /> Signing in...
+                  </>
+                ) : (
+                  <>
+                    Sign in as {currentRoleObj?.label}
+                    <ArrowRight size={18} />
+                  </>
+                )}
               </button>
             </form>
 
@@ -169,7 +193,7 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => setQr(true)}
-                className="w-full mt-3 border border-teal-200 text-teal-800 bg-teal-50 rounded-xl py-3 font-semibold flex items-center justify-center gap-2"
+                className="w-full mt-3 border border-teal-200 text-teal-800 bg-teal-50 hover:bg-teal-100 rounded-xl py-3 font-semibold flex items-center justify-center gap-2 transition-colors"
               >
                 <QrCode size={18} /> Scan ABHA QR instead
               </button>
@@ -177,8 +201,8 @@ export default function Login() {
 
             <div className="flex gap-2 items-start mt-6 text-[11px] text-muted">
               <ShieldCheck size={15} className="text-teal-600 shrink-0" />
-              Demo authentication for the prototype. Production deployment
-              should use ABDM/ABHA consent, identity and session flows.
+              Demo authentication for prototype. Production deployment should
+              use ABDM/ABHA consent, identity, and session flows.
             </div>
           </div>
         </div>
@@ -208,7 +232,7 @@ export default function Login() {
               );
               nav("/dashboard");
             }}
-            className="mt-5 bg-teal-700 text-white px-5 py-2.5 rounded-xl font-semibold"
+            className="mt-5 bg-teal-700 hover:bg-teal-800 text-white px-5 py-2.5 rounded-xl font-semibold transition-colors"
           >
             Use demo ABHA
           </button>

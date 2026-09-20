@@ -1,5 +1,4 @@
-import React from "react";
-import { useState } from "react";
+import React, { useState } from "react";
 import {
   Building2,
   BedDouble,
@@ -20,14 +19,17 @@ import SectionHeader from "../components/SectionHeader";
 import FacilityMap from "../components/FacilityMap";
 import Badge from "../components/Badge";
 import { districtStats, facilities, medicines, diagnostics } from "../data";
+
 export function FacilityAdminDashboard({ subpage }) {
-  const [filter, setFilter] = useState("All");
   const [medicineFilter, setMedicineFilter] = useState("All");
+
   const filtered = medicines.filter(
     (x) => medicineFilter === "All" || x.status === medicineFilter,
   );
+
   if (subpage === "network")
     return <Network title="District facility network" />;
+
   if (subpage === "medicines")
     return (
       <div>
@@ -88,8 +90,8 @@ export function FacilityAdminDashboard({ subpage }) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((x) => (
-                  <tr className="border-b last:border-0">
+                {filtered.map((x, idx) => (
+                  <tr key={x.id || `${x.store}-${x.medicine}-${idx}`} className="border-b last:border-0">
                     <td className="py-3">{x.store}</td>
                     <td className="font-semibold">{x.medicine}</td>
                     <td>{x.stock}</td>
@@ -115,6 +117,7 @@ export function FacilityAdminDashboard({ subpage }) {
         </div>
       </div>
     );
+
   if (subpage === "diagnostics")
     return (
       <div>
@@ -156,8 +159,8 @@ export function FacilityAdminDashboard({ subpage }) {
               </tr>
             </thead>
             <tbody>
-              {diagnostics.map((x) => (
-                <tr className="border-b last:border-0">
+              {diagnostics.map((x, idx) => (
+                <tr key={x.id || `${x.facility}-${x.machine}-${idx}`} className="border-b last:border-0">
                   <td className="py-3 font-semibold">{x.facility}</td>
                   <td>{x.machine}</td>
                   <td>{x.available}</td>
@@ -197,7 +200,7 @@ export function FacilityAdminDashboard({ subpage }) {
                 "See where diagnostic referrals are accumulating",
               ],
             ].map(([a, b]) => (
-              <div className="border rounded-xl p-4">
+              <div key={a} className="border rounded-xl p-4">
                 <b className="text-sm">{a}</b>
                 <p className="text-xs text-muted mt-1">{b}</p>
               </div>
@@ -206,6 +209,7 @@ export function FacilityAdminDashboard({ subpage }) {
         </div>
       </div>
     );
+
   return (
     <div>
       <div className="grid md:grid-cols-4 gap-4">
@@ -280,7 +284,7 @@ export function FacilityAdminDashboard({ subpage }) {
               ["Diagnostic uptime", "94%", "green"],
               ["Referral completion", "76%", "amber"],
             ].map(([a, v, t]) => (
-              <div>
+              <div key={a}>
                 <div className="flex justify-between text-sm">
                   <b>{a}</b>
                   <span className="text-muted">{v}</span>
@@ -306,9 +310,11 @@ export function FacilityAdminDashboard({ subpage }) {
     </div>
   );
 }
+
 function Network({ title }) {
   const [filter, setFilter] = useState("All");
   const list = facilities.filter((f) => filter === "All" || f.type === filter);
+
   return (
     <div>
       <SectionHeader
@@ -330,8 +336,8 @@ function Network({ title }) {
       />
       <div className="card p-5">
         <div className="grid md:grid-cols-2 gap-4">
-          {list.map((f) => (
-            <div className="border rounded-2xl p-4 hover:border-teal-300">
+          {list.map((f, idx) => (
+            <div key={f.id || f.name || idx} className="border rounded-2xl p-4 hover:border-teal-300">
               <div className="flex justify-between">
                 <div>
                   <b>{f.name}</b>
@@ -363,9 +369,11 @@ function Network({ title }) {
     </div>
   );
 }
+
 export function DistrictAdminDashboard({ subpage }) {
   if (subpage === "network")
     return <Network title="Facility network oversight" />;
+
   if (subpage === "insights")
     return (
       <div>
@@ -405,7 +413,7 @@ export function DistrictAdminDashboard({ subpage }) {
                 "Referral waiting > 48 hours at CHC Kurla",
                 "3 ambulances currently on dispatch",
               ].map((x, i) => (
-                <div className="flex gap-3 p-3 rounded-xl bg-slate-50">
+                <div key={x} className="flex gap-3 p-3 rounded-xl bg-slate-50">
                   <AlertTriangle
                     size={17}
                     className={i < 2 ? "text-rose-600" : "text-amber-600"}
@@ -424,7 +432,7 @@ export function DistrictAdminDashboard({ subpage }) {
                 "Call facilities with delayed referrals",
                 "Validate ambulance availability feed",
               ].map((x) => (
-                <div className="border rounded-xl p-3 flex items-center gap-3">
+                <div key={x} className="border rounded-xl p-3 flex items-center gap-3">
                   <CheckCircle2 size={17} className="text-teal-600" />
                   <span className="text-sm">{x}</span>
                 </div>
@@ -434,6 +442,7 @@ export function DistrictAdminDashboard({ subpage }) {
         </div>
       </div>
     );
+
   return (
     <div>
       <div className="grid md:grid-cols-4 gap-4">
@@ -482,7 +491,7 @@ export function DistrictAdminDashboard({ subpage }) {
                 ["Medicine coverage", "91%"],
                 ["Diagnostics uptime", "94%"],
               ].map(([a, v]) => (
-                <div>
+                <div key={a}>
                   <div className="flex justify-between text-sm">
                     <b>{a}</b>
                     <span>{v}</span>
@@ -506,7 +515,7 @@ export function DistrictAdminDashboard({ subpage }) {
                 ["Emergency view", Ambulance],
                 ["Reports", Activity],
               ].map(([x, I]) => (
-                <button className="border rounded-xl p-3 text-left hover:bg-slate-50">
+                <button key={x} className="border rounded-xl p-3 text-left hover:bg-slate-50">
                   <I size={18} className="text-teal-700" />
                   <b className="block text-xs mt-2">{x}</b>
                 </button>

@@ -31,6 +31,7 @@ export const saveOfflineRecord = async (endpoint, payload) => {
     const req = store.add(item);
     req.onsuccess = () => resolve(req.result);
     req.onerror = (e) => reject(e.target.error);
+    tx.oncomplete = () => db.close();
   });
 };
 
@@ -42,6 +43,7 @@ export const getOfflineRecords = async () => {
     const req = store.getAll();
     req.onsuccess = () => resolve(req.result);
     req.onerror = (e) => reject(e.target.error);
+    tx.oncomplete = () => db.close();
   });
 };
 
@@ -53,5 +55,6 @@ export const deleteOfflineRecord = async (id) => {
     const req = store.delete(id);
     req.onsuccess = () => resolve();
     req.onerror = (e) => reject(e.target.error);
+    tx.oncomplete = () => db.close();
   });
 };
