@@ -1,43 +1,34 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
+// Express Route / Controller
+app.post("/api/triage", async (req, res) => {
+  try {
+    const { text, symptoms } = req.body;
+    const inputString = (text || symptoms || "").toLowerCase();
 
-app = FastAPI()
+    // 1. Same Keywords from Python script
+    const redKeywords = ["दर्द", "छाती", "सांस", "हार्ट", "अटैक", "chest pain", "breathless", "unconscious"];
+    const yellowKeywords = ["बुखार", "चक्कर", "उल्टी", "fever", "dizzy", "vomit", "headache"];
 
-# Public Indic language model (No token needed)
-MODEL_NAME = "google/muril-base-cased"
-
-try:
-    from transformers import AutoTokenizer
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    print("Indic Model Tokenizer loaded successfully!")
-except Exception as e:
-    print(f"Model initialization warning: {e}")
-
-class TextPayload(BaseModel):
-    text: str
-    language: str = "hi"
-
-@app.post("/parse")
-def parse_symptoms(payload: TextPayload):
-    text = payload.text.lower()
-    
-    # Multilingual triage parsing (Hindi, Marathi, Bengali, English)
-    red_keywords = ["दर्द", "छाती", "सांस", "हार्ट", "अटैक", "chest pain", "breathless", "unconscious"]
-    yellow_keywords = ["बुखार", "चक्कर", "उल्टी", "fever", "dizzy", "vomit", "headache"]
-
-    if any(kw in text for kw in red_keywords):
-        triage_level = "RED"
-    elif any(kw in text for kw in yellow_keywords):
-        triage_level = "YELLOW"
-    else:
-        triage_level = "GREEN"
-
-    return {
-        "status": "success",
-        "triageLevel": triage_level,
-        "parsedText": payload.text
+    // 2. Triage Logic
+    let triageLevel = "GREEN";
+    if (redKeywords.some(kw => inputString.includes(kw))) {
+      triageLevel = "RED";
+    } else if (yellowKeywords.some(kw => inputString.includes(kw))) {
+      triageLevel = "YELLOW";
     }
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    // 3. Save to MongoDB Atlas
+    const newTriageRecord = await TriageModel.create({
+      ...req.body,
+      triageLevel: triageLevel
+    });
+
+    res.status(200).json({
+      status: "success",
+      data: newTriageRecord
+    });
+
+  } catch (error) {
+    console.error("Triage Submission Error:", error);
+    res.status(500).json({ error: error.message || "Server Error" });
+  }
+});
