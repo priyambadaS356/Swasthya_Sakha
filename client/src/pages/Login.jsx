@@ -4,7 +4,6 @@ import { useNavigate } from "react-router-dom";
 import { ShieldCheck, QrCode, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
 import { roles } from "../data";
 import { loginSuccess } from "../store/authSlice";
-import { api } from "../api";
 import Modal from "../components/Modal";
 
 const DEMO_USERNAMES = {
@@ -35,7 +34,7 @@ export default function Login() {
     const password = form.password?.value;
 
     try {
-      const data = await api("/auth/login", {
+      const response = await fetch("https://swasthya-sakha.onrender.com/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -45,11 +44,22 @@ export default function Login() {
         }),
       });
 
-      dispatch(loginSuccess(data));
-      nav("/dashboard");
+      const data = await response.json();
+
+      if (response.ok) {
+        dispatch(loginSuccess(data));
+        nav("/dashboard");
+      } else {
+        const errorMsg = typeof data?.message === 'string' 
+          ? data.message 
+          : "Invalid credentials or login failed.";
+        setError(errorMsg);
+      }
     } catch (err) {
       console.error("Login Error:", err);
-      const msg = typeof err === "string" ? err : err?.message || "Server error. Please verify backend service.";
+      const msg = typeof err?.message === "string" 
+        ? err.message 
+        : "Server connection error. Please verify backend service.";
       setError(msg);
     } finally {
       setLoading(false);
@@ -167,7 +177,7 @@ export default function Login() {
 
               {error && (
                 <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 p-3 rounded-xl">
-                  {error}
+                  {String(error)}
                 </p>
               )}
 
