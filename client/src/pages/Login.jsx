@@ -1,5 +1,4 @@
-import React from "react";
-import { useState } from "react";
+import React, { useState } from "react";
 import { useDispatch } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, QrCode, ArrowRight, CheckCircle2 } from "lucide-react";
@@ -14,17 +13,24 @@ export default function Login() {
   const [error, setError] = useState("");
   const dispatch = useDispatch();
   const nav = useNavigate();
+
   const submit = async (e) => {
     e.preventDefault();
     setError("");
     try {
-      const username = {
+      // Default demo username fallback based on role
+      const defaultUsername = {
         patient: "patient",
         healthWorker: "worker",
         doctor: "doctor",
         facilityAdmin: "facility",
         districtAdmin: "district",
       }[role];
+
+      // Use entered username/mobile if provided, otherwise fallback to demo user
+      const enteredUsername = e.currentTarget.username?.value;
+      const username = enteredUsername || defaultUsername;
+
       const data = await api("/auth/login", {
         method: "POST",
         body: JSON.stringify({
@@ -33,14 +39,17 @@ export default function Login() {
           role,
         }),
       });
+
       dispatch(loginSuccess(data));
       nav("/dashboard");
     } catch (err) {
-      setError(err.message);
+      setError(err.message || "Login failed. Please try again.");
     }
   };
+
   return (
     <div className="min-h-screen grid lg:grid-cols-[1.1fr_.9fr] bg-[#f6f9fc]">
+      {/* Left Branding Panel */}
       <div className="hidden lg:flex bg-[#0b2239] text-white p-12 relative overflow-hidden">
         <div className="max-w-xl self-center relative z-10">
           <div className="flex items-center gap-3 mb-8">
@@ -69,7 +78,10 @@ export default function Login() {
               "GIS facility visibility",
               "Referral & follow-up tracking",
             ].map((x) => (
-              <div className="bg-white/6 border border-white/10 rounded-xl p-3 text-sm flex gap-2">
+              <div
+                key={x}
+                className="bg-white/6 border border-white/10 rounded-xl p-3 text-sm flex gap-2"
+              >
                 <CheckCircle2 size={17} className="text-teal-300 shrink-0" />
                 {x}
               </div>
@@ -78,6 +90,8 @@ export default function Login() {
         </div>
         <div className="absolute -right-28 -bottom-28 w-96 h-96 rounded-full border-[60px] border-teal-400/10" />
       </div>
+
+      {/* Right Login Form Panel */}
       <div className="flex items-center justify-center p-5 sm:p-10">
         <div className="w-full max-w-lg">
           <div className="lg:hidden flex items-center gap-3 mb-8">
@@ -96,22 +110,32 @@ export default function Login() {
                 Choose your role to open the right workspace.
               </p>
             </div>
+
+            {/* Role Selectors */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-6">
               {roles.map((r) => (
                 <button
                   key={r.id}
+                  type="button"
                   onClick={() => setRole(r.id)}
-                  className={`text-left p-3 rounded-xl border ${role === r.id ? "border-teal-500 bg-teal-50" : "border-slate-200 hover:bg-slate-50"}`}
+                  className={`text-left p-3 rounded-xl border ${
+                    role === r.id
+                      ? "border-teal-500 bg-teal-50"
+                      : "border-slate-200 hover:bg-slate-50"
+                  }`}
                 >
                   <div className="font-semibold text-sm">{r.label}</div>
                   <div className="text-[11px] text-muted mt-1">{r.hint}</div>
                 </button>
               ))}
             </div>
+
+            {/* Login Form */}
             <form onSubmit={submit} className="space-y-4">
               <label className="block text-sm font-semibold">
                 Mobile / User ID
                 <input
+                  name="username"
                   required
                   className="mt-1.5 w-full border border-slate-200 rounded-xl px-4 py-3 outline-none focus:border-teal-500"
                   placeholder={
@@ -129,20 +153,28 @@ export default function Login() {
                   placeholder="••••••••"
                 />
               </label>
+
               {error && <p className="text-sm text-rose-600">{error}</p>}
-              <button className="w-full bg-[#0b2239] text-white rounded-xl py-3.5 font-semibold flex items-center justify-center gap-2 hover:bg-[#12355b]">
+
+              <button
+                type="submit"
+                className="w-full bg-[#0b2239] text-white rounded-xl py-3.5 font-semibold flex items-center justify-center gap-2 hover:bg-[#12355b]"
+              >
                 Sign in as {roles.find((r) => r.id === role)?.label}
                 <ArrowRight size={18} />
               </button>
             </form>
+
             {role === "patient" && (
               <button
+                type="button"
                 onClick={() => setQr(true)}
                 className="w-full mt-3 border border-teal-200 text-teal-800 bg-teal-50 rounded-xl py-3 font-semibold flex items-center justify-center gap-2"
               >
                 <QrCode size={18} /> Scan ABHA QR instead
               </button>
             )}
+
             <div className="flex gap-2 items-start mt-6 text-[11px] text-muted">
               <ShieldCheck size={15} className="text-teal-600 shrink-0" />
               Demo authentication for the prototype. Production deployment
@@ -151,6 +183,8 @@ export default function Login() {
           </div>
         </div>
       </div>
+
+      {/* ABHA Modal */}
       <Modal
         open={qr}
         onClose={() => setQr(false)}
@@ -163,13 +197,14 @@ export default function Login() {
             Connect the camera scanner to the official ABHA flow in production.
           </p>
           <button
+            type="button"
             onClick={() => {
               setQr(false);
               dispatch(
                 loginSuccess({
                   user: { name: "Asha Patil", role: "patient" },
                   token: "demo-token",
-                }),
+                })
               );
               nav("/dashboard");
             }}

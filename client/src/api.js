@@ -1,17 +1,24 @@
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const API =
+  import.meta.env.VITE_API_URL ||
+  "https://swasthya-sakha.onrender.com/api";
+
 export async function api(path, options = {}) {
   const auth = JSON.parse(localStorage.getItem("ss_auth") || "null");
   const headers = {
     "Content-Type": "application/json",
     ...(options.headers || {}),
   };
+
   if (auth?.token) headers.Authorization = `Bearer ${auth.token}`;
+
   const r = await fetch(`${API}${path}`, { ...options, headers });
   if (!r.ok)
     throw new Error(
       (await r.json().catch(() => ({}))).message ||
         `Request failed (${r.status})`,
     );
+
   return r.json();
 }
+
 export { API };
