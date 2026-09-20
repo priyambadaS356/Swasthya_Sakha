@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import Badge from './Badge';
 import { saveOfflineRecord } from '../utils/indexedDB';
-import api from '../api';
+import { api } from '../api';
 
 export const QUICK_SYMPTOMS = [
   { id: 'fever', label: 'Fever', mr: 'ताप', score: 1, icon: Flame, color: 'hover:border-amber-400 hover:bg-amber-50 text-amber-600' },
