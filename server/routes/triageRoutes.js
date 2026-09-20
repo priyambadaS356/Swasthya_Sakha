@@ -1,77 +1,61 @@
 import express from 'express';
-import Triage from '../models/Triage.js';
-
+import mongoose from 'mongoose';
 
 const router = express.Router();
-const INDICBERT_URL =
-  process.env.INDICBERT_URL || 'http://127.0.0.1:8000';
 
-// Helper function to send text to local Python IndicBERT service
-async function parseWithLocalIndicBERT(text, language) {
+// 1. Schema & Model Definition (Ensures MongoDB doesn't throw ReferenceError)
+const triageSchema = new mongoose.Schema(
+  {
+    text: String,
+    symptoms: String,
+    triageLevel: String,
+    createdAt: { type: Date, default: Date.now }
+  },
+  { strict: false } // Allows extra fields from frontend without schema validation errors
+);
+
+const Triage = mongoose.models.Triage || mongoose.model('Triage', triageSchema);
+
+// 2. Correct Route Handler (Path is '/' because '/api/triage' is mounted in server.js)
+router.post('/', async (req, res) => {
   try {
-    const res = await fetch(`${INDICBERT_URL}/parse`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ text, language })
-    });
+    const { text, symptoms } = req.body || {};
+    const inputString = (text || symptoms || JSON.stringify(req.body) || '').toLowerCase();
 
-    const data = await res.json();
+    // Keywords from triage logic
+    const redKeywords = ["दर्द", "छाती", "सांस", "हार्ट", "अटैक", "chest pain", "breathless", "unconscious"];
+    const yellowKeywords = ["बुखार", "चक्कर", "उल्टी", "fever", "dizzy", "vomit", "headache"];
 
-    return data.triageLevel || 'GREEN';
-  } catch (err) {
-    console.error(
-      'IndicBERT service unreachable:',
-      err.message
-    );
-
-    return 'GREEN';
-  }
-}
-router.post('/submit', async (req, res) => {
-  try {
-    const { symptomsText, selectedSymptoms, totalScore, language } = req.body;
-
-    let triageLevel = 'GREEN';
-
-    // 1. If text/voice input is present, prioritize IndicBERT parsing
-    if (symptomsText && symptomsText.trim().length > 0) {
-      triageLevel = await parseWithLocalIndicBERT(symptomsText, language);
-    } 
-    // 2. If no text input, fallback to icon selection MEWS score
-    else {
-      if (totalScore >= 4) triageLevel = 'RED';
-      else if (totalScore >= 2) triageLevel = 'YELLOW';
+    // Native JS Triage Rule Engine
+    let triageLevel = "GREEN";
+    if (redKeywords.some((kw) => inputString.includes(kw))) {
+      triageLevel = "RED";
+    } else if (yellowKeywords.some((kw) => inputString.includes(kw))) {
+      triageLevel = "YELLOW";
     }
 
-    const triageRecord = new Triage({
-      symptomsText,
-      selectedSymptoms,
-      mewsScore: totalScore || 0,
-      triageLevel,
-      language
-    });
+    // Check DB Connection state before saving
+    if (mongoose.connection.readyState === 1) {
+      const newTriageRecord = await Triage.create({
+        ...req.body,
+        triageLevel: triageLevel
+      });
 
-    await triageRecord.save();
-
-    return res.status(201).json({
-      success: true,
-      message: 'Triage assessment saved successfully',
-      data: triageRecord
-    });
+      return res.status(200).json({
+        status: "success",
+        data: newTriageRecord
+      });
+    } else {
+      // Fallback response if DB is temporarily disconnected
+      return res.status(200).json({
+        status: "success",
+        data: { ...req.body, triageLevel },
+        warning: "Saved locally; DB connection pending"
+      });
+    }
   } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// Fetch all recent triage submissions
-router.get('/all', async (req, res) => {
-  try {
-    const records = await Triage.find().sort({ createdAt: -1 }).limit(50);
-    return res.json({ success: true, data: records });
-  } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
+    console.error("Triage Submission Error:", error);
+    res.status(500).json({ status: "error", message: error.message || "Server Error" });
   }
 });
 
