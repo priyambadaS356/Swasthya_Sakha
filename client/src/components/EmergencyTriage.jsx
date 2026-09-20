@@ -4,7 +4,6 @@ import {
 } from 'lucide-react';
 import Badge from './Badge';
 import { saveOfflineRecord } from '../utils/indexedDB';
-import { api } from '../api';
 
 export const QUICK_SYMPTOMS = [
   { id: 'fever', label: 'Fever', mr: 'ताप', score: 1, icon: Flame, color: 'hover:border-amber-400 hover:bg-amber-50 text-amber-600' },
@@ -97,22 +96,23 @@ export function TriageCard({ totalScore, selectedSymptoms = [] }) {
 
   const TriageIcon = triageConfig.icon;
 
-  // Offline-First Submit Logic
+  // Direct Production Network Submit Logic
   const handleTriageSubmit = async () => {
     setSubmitting(true);
-    const endpoint = '/triage';
+
     const payload = {
+      symptoms: selectedSymptoms.join(', '),
       selectedSymptoms,
       totalScore,
       triageLevel: triageConfig.title,
       submittedAt: new Date().toISOString()
     };
 
-    // Case 1: Browser is Offline
+    // Case 1: Device is Offline
     if (!navigator.onLine) {
       try {
-        await saveOfflineRecord(endpoint, payload);
-        alert('⚠️ Device offline hai. Triage assessment IndexedDB mein save ho gaya hai aur internet aate hi server par sync ho jayega!');
+        await saveOfflineRecord('/triage', payload);
+        alert('⚠️ Device offline hai. Triage assessment IndexedDB mein save ho gaya hai!');
       } catch (err) {
         console.error('Offline Save Error:', err);
         alert('Failed to save offline record.');
@@ -122,19 +122,28 @@ export function TriageCard({ totalScore, selectedSymptoms = [] }) {
       return;
     }
 
-    // Case 2: Browser is Online
+    // Case 2: Device is Online (Direct Call to Live Render Backend)
     try {
-      await api.post(endpoint, payload);
-      alert('✅ Triage assessment successfully server par submit ho gaya!');
+      const response = await fetch('https://swasthya-sakha.onrender.com/api/triage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert('✅ Triage assessment successfully server par submit ho gaya!');
+      } else {
+        alert('Server Error: ' + (data.message || 'Submission failed'));
+      }
     } catch (error) {
       console.error('Triage Submit Error:', error);
-      // Case 3: Network lost during request
-      if (!error.response) {
-        await saveOfflineRecord(endpoint, payload);
-        alert('⚠️ Network loss detected. Triage record offline queue mein save kar diya gaya!');
-      } else {
-        alert('Server Error: ' + (error.response?.data?.message || 'Submission failed'));
-      }
+      // Case 3: Network loss during request
+      await saveOfflineRecord('/triage', payload);
+      alert('⚠️ Network loss detected. Triage record offline queue mein save kar diya gaya!');
     } finally {
       setSubmitting(false);
     }
